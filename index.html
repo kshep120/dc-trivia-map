@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>DC Trivia Nights</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<style>
+  :root{
+    --ink:#1a1626; --panel:#211b33; --panel2:#2c2442;
+    --gold:#e8b64c; --gold-dim:#b98e2f;
+    --cream:#f3ead6; --muted:#a99fc4; --line:#3a3152;
+    --chip:#372e52; --accent:#e8734a;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{font-family:"Georgia",serif; background:var(--ink); color:var(--cream);
+    display:flex; flex-direction:column; height:100vh; overflow:hidden;}
+  header{padding:14px 20px; border-bottom:1px solid var(--line);
+    background:linear-gradient(180deg,#251e3a,#1a1626);
+    display:flex; align-items:baseline; gap:14px; flex-wrap:wrap;}
+  header h1{font-size:26px; letter-spacing:.5px; color:var(--gold); font-weight:normal;}
+  header h1 .amp{color:var(--accent); font-style:italic}
+  header .sub{font-size:12.5px; color:var(--muted); font-family:system-ui,sans-serif; letter-spacing:.3px}
+  .wrap{flex:1; display:flex; min-height:0}
+  #sidebar{width:340px; background:var(--panel); border-right:1px solid var(--line);
+    display:flex; flex-direction:column; min-height:0;}
+  .filters{padding:14px 16px; border-bottom:1px solid var(--line)}
+  .filters .lbl{font-family:system-ui,sans-serif; font-size:11px; text-transform:uppercase;
+    letter-spacing:1.5px; color:var(--muted); margin-bottom:9px;}
+  .days{display:flex; flex-wrap:wrap; gap:6px}
+  .day{font-family:system-ui,sans-serif; font-size:12.5px; padding:6px 11px;
+    background:var(--chip); color:var(--cream); border:1px solid transparent;
+    border-radius:20px; cursor:pointer; transition:.15s; user-select:none;}
+  .day:hover{border-color:var(--gold-dim)}
+  .day.on{background:var(--gold); color:#241d10; font-weight:600}
+  .count{padding:10px 16px; font-family:system-ui,sans-serif; font-size:12px;
+    color:var(--muted); border-bottom:1px solid var(--line);}
+  .count b{color:var(--gold)}
+  #list{overflow-y:auto; flex:1}
+  .card{padding:13px 16px; border-bottom:1px solid var(--line); cursor:pointer; transition:background .12s;}
+  .card:hover{background:var(--panel2)}
+  .card.active{background:var(--panel2); border-left:3px solid var(--gold)}
+  .card .nm{font-size:16px; color:var(--cream); margin-bottom:3px}
+  .card .hood{font-family:system-ui,sans-serif; font-size:11.5px; color:var(--muted);
+    text-transform:uppercase; letter-spacing:.5px; margin-bottom:7px;}
+  .night{font-family:system-ui,sans-serif; font-size:12.5px; color:var(--cream);
+    display:flex; gap:7px; align-items:center; margin-top:4px;}
+  .night .d{background:var(--chip); color:var(--gold); padding:1px 7px; border-radius:4px;
+    font-size:11px; font-weight:600; min-width:42px; text-align:center;}
+  .night .h{color:var(--muted)}
+  #map{flex:1; min-height:0; background:#15111f}
+  .leaflet-popup-content-wrapper{background:var(--panel); color:var(--cream);
+    border-radius:8px; border:1px solid var(--gold-dim);}
+  .leaflet-popup-tip{background:var(--panel); border:1px solid var(--gold-dim)}
+  .pop .nm{font-size:16px; color:var(--gold); margin-bottom:2px}
+  .pop .hood{font-family:system-ui,sans-serif; font-size:11px; color:var(--muted);
+    text-transform:uppercase; letter-spacing:.5px; margin-bottom:8px}
+  .pop .row{font-family:system-ui,sans-serif; font-size:12.5px; margin:5px 0; line-height:1.4}
+  .pop .row .d{color:var(--gold); font-weight:600}
+  .pop .host{color:var(--muted)}
+  .pop .drinks{color:var(--accent); font-size:11.5px; margin-top:2px}
+  @media(max-width:720px){
+    #sidebar{width:100%; position:absolute; z-index:1000; height:45%; bottom:0; top:auto;
+      border-right:none; border-top:1px solid var(--line)}
+    .wrap{flex-direction:column}
+    #map{height:55%}
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>DC Trivia <span class="amp">&amp;</span> Quiz Nights</h1>
+  <span class="sub" id="subhead">Loading live data&hellip;</span>
+</header>
+<div class="wrap">
+  <div id="sidebar">
+    <div class="filters">
+      <div class="lbl">Filter by night</div>
+      <div class="days" id="days"></div>
+    </div>
+    <div class="count" id="count">Connecting to database&hellip;</div>
+    <div id="list"></div>
+  </div>
+  <div id="map"></div>
+</div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const SUPABASE_URL = "https://pwyzgypjsgnswqhrhlrs.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB3eXpneXBqc2duc3dxaHJobHJzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQzMDIzMzUsImV4cCI6MjA5OTg3ODMzNX0.waqKZfixcpzOm04r3U1RyyfYAIDjL2r5Ch1imVzuRWI";
+const DAYS = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
+
+let DATA = [];
+let active = new Set();
+let selectedId = null;
+const markers = {};
+
+const map = L.map('map',{zoomControl:true}).setView([38.915,-77.02],12.4);
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{
+  attribution:'&copy; OpenStreetMap &copy; CARTO', maxZoom:19
+}).addTo(map);
+
+function goldIcon(){
+  return L.divIcon({className:'',
+    html:'<div style="width:16px;height:16px;background:#e8b64c;border:2px solid #241d10;border-radius:50%;box-shadow:0 0 6px rgba(232,182,76,.6)"></div>',
+    iconSize:[16,16], iconAnchor:[8,8], popupAnchor:[0,-10]});
+}
+function fmtTime(s){
+  if(!s) return '';
+  const m = String(s).match(/(\d{1,2}):(\d{2})/);
+  if(!m) return s;
+  let h = parseInt(m[1],10); const mn = m[2];
+  const ap = h < 12 ? 'AM' : 'PM'; const h12 = (h % 12) || 12;
+  return h12 + ':' + mn + ' ' + ap;
+}
+function nightsFor(v){
+  if(active.size===0) return v.nights;
+  return v.nights.filter(n=>active.has(n.day));
+}
+function visible(){ return DATA.filter(v=>nightsFor(v).length>0); }
+
+function popupHtml(v){
+  let h = '<div class="pop"><div class="nm">'+v.name+'</div>';
+  h += '<div class="hood">'+(v.neighborhood||'')+'</div>';
+  nightsFor(v).forEach(n=>{
+    h += '<div class="row"><span class="d">'+n.day+'</span> '+(n.time||'')+
+         ' <span class="host">&middot; '+(n.host||'')+'</span>';
+    if(n.drinks) h += '<div class="drinks">&#127866; '+n.drinks+'</div>';
+    h += '</div>';
+  });
+  return h + '</div>';
+}
+function render(){
+  Object.values(markers).forEach(m=>map.removeLayer(m));
+  const vis = visible();
+  vis.forEach(v=>{
+    const mk = L.marker([v.lat,v.lng],{icon:goldIcon()}).bindPopup(popupHtml(v));
+    mk.on('click',()=>{ selectedId=v.id; paintList(); });
+    mk.addTo(map); markers[v.id]=mk;
+  });
+  paintList();
+  const games = vis.reduce((s,v)=>s+nightsFor(v).length,0);
+  document.getElementById('count').innerHTML =
+    '<b>'+vis.length+'</b> venues &middot; <b>'+games+'</b> games'+
+    (active.size ? ' on '+[...active].join(', ') : ' this week');
+}
+function paintList(){
+  const el = document.getElementById('list'); el.innerHTML='';
+  visible().sort((a,b)=>a.name.localeCompare(b.name)).forEach(v=>{
+    const c = document.createElement('div');
+    c.className = 'card' + (v.id===selectedId ? ' active' : '');
+    let inner = '<div class="nm">'+v.name+'</div><div class="hood">'+(v.neighborhood||'')+'</div>';
+    nightsFor(v).forEach(n=>{
+      inner += '<div class="night"><span class="d">'+n.day.slice(0,3)+'</span>'+
+               '<span>'+(n.time||'')+'</span><span class="h">&middot; '+(n.host||'')+'</span></div>';
+    });
+    c.innerHTML = inner;
+    c.onclick = ()=>{ selectedId=v.id; map.setView([v.lat,v.lng],15);
+      if(markers[v.id]) markers[v.id].openPopup(); paintList(); };
+    el.appendChild(c);
+  });
+}
+function buildDayChips(){
+  const dwrap = document.getElementById('days'); dwrap.innerHTML='';
+  DAYS.forEach(d=>{
+    const has = DATA.some(v=>v.nights.some(n=>n.day===d));
+    if(!has) return;
+    const el = document.createElement('div');
+    el.className='day'; el.textContent=d.slice(0,3);
+    el.onclick = ()=>{
+      if(active.has(d)) active.delete(d); else active.add(d);
+      el.classList.toggle('on'); selectedId=null; render();
+    };
+    dwrap.appendChild(el);
+  });
+}
+
+async function sbFetch(table){
+  const res = await fetch(SUPABASE_URL + '/rest/v1/' + table + '?select=*', {
+    headers: { apikey: SUPABASE_ANON_KEY, Authorization: 'Bearer ' + SUPABASE_ANON_KEY }
+  });
+  if(!res.ok){ throw new Error(table + ': HTTP ' + res.status + ' ' + (await res.text()).slice(0,120)); }
+  return res.json();
+}
+async function loadData(){
+  try{
+    const [venues, trivia] = await Promise.all([sbFetch('venues'), sbFetch('trivia_nights')]);
+    const byId = {};
+    venues.forEach(v=>{
+      byId[v.venue_id] = { id:v.venue_id, name:v.name, neighborhood:v.neighborhood||'',
+        lat:parseFloat(v.lat), lng:parseFloat(v.lng), nights:[] };
+    });
+    trivia.forEach(t=>{
+      const v = byId[t.venue_id];
+      if(v) v.nights.push({ day:t.day_of_week||'', time:fmtTime(t.start_time),
+        host:t.host_company||'', drinks:t.drink_specials||'' });
+    });
+    DATA = Object.values(byId).filter(v=>v.nights.length && !isNaN(v.lat) && !isNaN(v.lng));
+    document.getElementById('subhead').innerHTML =
+      DATA.length + ' venues &middot; live from database &middot; tap a day to filter';
+    buildDayChips();
+    render();
+  }catch(err){
+    document.getElementById('count').innerHTML =
+      '<span style="color:#e8734a">Could not load data: ' + err.message +
+      '</span>';
+    console.error(err);
+  }
+}
+loadData();
+</script>
+</body>
+</html>
